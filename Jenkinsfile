@@ -83,14 +83,6 @@ pipeline {
         echo "Cleanup completed. Kept last 3 images."
         '''
     }
-}
-    }
-
-    post {
-        failure {
-            echo "Deployment failed — old version still running"
-        }
-    }
 stage('Cleanup Docker Hub Tags (Keep Last 3)') {
     when {
         expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
@@ -136,4 +128,12 @@ stage('Cleanup Docker Hub Tags (Keep Last 3)') {
         }
     }
 }
+}
+    }
+
+    post {
+        failure {
+            echo "Deployment failed — old version still running"
+        }
+    }
 }
