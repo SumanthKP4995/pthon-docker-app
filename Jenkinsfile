@@ -45,30 +45,26 @@ pipeline {
             }
         }
 
-        /* ✅ DEPLOY CONTAINER LOCALLY */
         stage('Deploy Container on Local Server') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
-            steps {
-                sh '''
-                echo "Deploying container locally..."
+    when {
+        expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+    }
+    steps {
+        sh '''
+        echo "Deploying container for build $IMAGE_TAG"
 
-                docker stop flask-app || true
-                docker rm flask-app || true
+        docker run -d \
+          --name flask-app-$IMAGE_TAG \
+          --label app=python-flask \
+          --label build=$IMAGE_TAG \
+          --restart unless-stopped \
+          -p 5000:5000 \
+          $IMAGE_NAME:$IMAGE_TAG
 
-                docker run -d \
-                  --name flask-app \
-                  --label app=python-flask \
-                  --label build=$IMAGE_TAG \
-                  --restart unless-stopped \
-                  -p 5000:5000 \
-                  $IMAGE_NAME:$IMAGE_TAG
-
-                echo "Container deployed successfully"
-                '''
-            }
-        }
+        echo "Container flask-app-$IMAGE_TAG started"
+        '''
+    }
+}
 
         /* ✅ LOCAL IMAGE CLEANUP (AFTER DEPLOY) */
         stage('Cleanup Local Docker Images (Keep Last 3)') {
