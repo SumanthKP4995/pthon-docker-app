@@ -80,8 +80,8 @@ pipeline {
     }
     steps {
         withCredentials([string(
-            credentialsId: 'dockerhub-api-token',
-            variable: 'dockerhub-cred'
+            credentialsId: 'dockerhub-cred',
+            variable: 'DOCKERHUB_USER'
         )]) {
             sh '''#!/bin/bash
             set -e
