@@ -45,7 +45,32 @@ pipeline {
             }
         }
 
-        /* ✅ LOCAL DOCKER CLEANUP */
+        /* ✅ DEPLOY CONTAINER LOCALLY */
+        stage('Deploy Container on Local Server') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                sh '''
+                echo "Deploying container locally..."
+
+                docker stop flask-app || true
+                docker rm flask-app || true
+
+                docker run -d \
+                  --name flask-app \
+                  --label app=python-flask \
+                  --label build=$IMAGE_TAG \
+                  --restart unless-stopped \
+                  -p 5000:5000 \
+                  $IMAGE_NAME:$IMAGE_TAG
+
+                echo "Container deployed successfully"
+                '''
+            }
+        }
+
+        /* ✅ LOCAL IMAGE CLEANUP (AFTER DEPLOY) */
         stage('Cleanup Local Docker Images (Keep Last 3)') {
             when {
                 expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
@@ -100,11 +125,9 @@ pipeline {
                         | jq -r .token)
 
                     if [ -z "$JWT" ] || [ "$JWT" = "null" ]; then
-                        echo "⚠️ Docker Hub authentication failed. Skipping registry cleanup."
+                        echo "⚠ Docker Hub authentication failed. Skipping cleanup."
                         exit 0
                     fi
-
-                    echo "Fetching tags from Docker Hub..."
 
                     TAGS=$(curl -s -H "Authorization: JWT $JWT" \
                         "https://hub.docker.com/v2/repositories/$DOCKERHUB_USER/$REPO/tags/?page_size=100" \
@@ -137,7 +160,7 @@ pipeline {
 
     post {
         failure {
-            echo "Pipeline failed — deployment completed, cleanup skipped if necessary"
+            echo "Pipeline failed — deployment already done, cleanup skipped"
         }
     }
 }
