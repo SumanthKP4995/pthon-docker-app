@@ -45,28 +45,30 @@ pipeline {
             }
         }
 
-        stage('Deploy Container on Local Server') {
-    when {
-        expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-    }
-    steps {
-        sh '''
-        echo "Deploying container for build $IMAGE_TAG"
+        /* ✅ RUN ONLY LATEST CONTAINER */
+        stage('Deploy Latest Container on Local Server') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                sh '''
+                echo "Deploying latest container (build $IMAGE_TAG)..."
 
-        docker run -d \
-          --name flask-app-$IMAGE_TAG \
-          --label app=python-flask \
-          --label build=$IMAGE_TAG \
-          --restart unless-stopped \
-          -p 5000:5000 \
-          $IMAGE_NAME:$IMAGE_TAG
+                docker stop flask-app || true
+                docker rm flask-app || true
 
-        echo "Container flask-app-$IMAGE_TAG started"
-        '''
-    }
-}
+                docker run -d \
+                  --name flask-app \
+                  --restart unless-stopped \
+                  -p 5000:5000 \
+                  $IMAGE_NAME:$IMAGE_TAG
 
-        /* ✅ LOCAL IMAGE CLEANUP (AFTER DEPLOY) */
+                echo "Latest container is running"
+                '''
+            }
+        }
+
+        /* ✅ LOCAL IMAGE CLEANUP (KEEP LAST 3) */
         stage('Cleanup Local Docker Images (Keep Last 3)') {
             when {
                 expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
@@ -76,7 +78,7 @@ pipeline {
                 echo "Cleaning local Docker images..."
 
                 TAGS=$(docker images $IMAGE_NAME --format "{{.Tag}}" \
-                    | grep -E '^[0-9]+$' | sort -n)
+                  | grep -E '^[0-9]+$' | sort -n)
 
                 COUNT=$(echo "$TAGS" | wc -l)
 
@@ -96,7 +98,7 @@ pipeline {
             }
         }
 
-        /* ✅ DOCKER HUB REGISTRY CLEANUP */
+        /* ✅ DOCKER HUB CLEANUP (KEEP LAST 3 TAGS) */
         stage('Cleanup Docker Hub Tags (Keep Last 3)') {
             when {
                 expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
@@ -113,22 +115,20 @@ pipeline {
                     REPO="python-flask-app"
                     KEEP=3
 
-                    echo "Authenticating with Docker Hub API..."
-
                     JWT=$(curl -s -X POST https://hub.docker.com/v2/users/login/ \
-                        -H "Content-Type: application/json" \
-                        -d '{"username":"'"$DOCKERHUB_USER"'","password":"'"$DOCKERHUB_TOKEN"'"}' \
-                        | jq -r .token)
+                      -H "Content-Type: application/json" \
+                      -d '{"username":"'"$DOCKERHUB_USER"'","password":"'"$DOCKERHUB_TOKEN"'"}' \
+                      | jq -r .token)
 
                     if [ -z "$JWT" ] || [ "$JWT" = "null" ]; then
-                        echo "⚠ Docker Hub authentication failed. Skipping cleanup."
+                        echo "Docker Hub auth failed. Skipping cleanup."
                         exit 0
                     fi
 
                     TAGS=$(curl -s -H "Authorization: JWT $JWT" \
-                        "https://hub.docker.com/v2/repositories/$DOCKERHUB_USER/$REPO/tags/?page_size=100" \
-                        | jq -r '.results[].name' \
-                        | grep -E '^[0-9]+$' | sort -n)
+                      "https://hub.docker.com/v2/repositories/$DOCKERHUB_USER/$REPO/tags/?page_size=100" \
+                      | jq -r '.results[].name' \
+                      | grep -E '^[0-9]+$' | sort -n)
 
                     TOTAL=$(echo "$TAGS" | wc -l)
 
@@ -156,7 +156,7 @@ pipeline {
 
     post {
         failure {
-            echo "Pipeline failed — deployment already done, cleanup skipped"
+            echo "Pipeline failed — running container remains unchanged"
         }
     }
 }
