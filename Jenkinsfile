@@ -43,37 +43,45 @@ pipeline {
             }
         }
 
+
         stage('Deploy Safely') {
-            steps {
-                sh '''
-                echo "Starting new container version $IMAGE_TAG"
+    steps {
+        sh '''
+        echo "Starting new container for version ${IMAGE_TAG}"
 
-                docker run -d \
-                  --name flask-app-$IMAGE_TAG \
-                  -p 5001:5000 \
-                  $IMAGE_NAME:$IMAGE_TAG
+        # Run new version on temporary port
+        docker run -d \
+          --name flask-app-${IMAGE_TAG} \
+          -p 5001:5000 \
+          $IMAGE_NAME:$IMAGE_TAG
 
-                echo "Waiting for app startup..."
-                sleep 10
+        echo "Waiting for application startup..."
+        sleep 10
 
-                echo "Health check..."
-                curl -f http://localhost:5001
+        echo "Running health check on new version..."
+        curl -f http://localhost:5001
 
-                echo "Promoting new version..."
+        echo "Health check passed. Switching live traffic..."
 
-                docker stop flask-app || true
-                docker rm flask-app || true
+        # Stop and remove old container ONLY
+        docker stop flask-app || true
+        docker rm flask-app || true
 
-                docker stop flask-app-$IMAGE_TAG
-                docker rm flask-app-$IMAGE_TAG
+        # Stop temporary container
+        docker stop flask-app-${IMAGE_TAG}
+        docker rm flask-app-${IMAGE_TAG}
 
-                docker run -d \
-                  --name flask-app \
-                  -p 5000:5000 \
-                  $IMAGE_NAME:$IMAGE_TAG
-                '''
-            }
-        }
+        # Start new container on live port
+        docker run -d \
+          --name flask-app \
+          -p 5000:5000 \
+          $IMAGE_NAME:$IMAGE_TAG
+
+        echo "Deployment completed successfully"
+        '''
+    }
+}
+        
 	stage('Cleanup Old Images') {
     when {
         expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
