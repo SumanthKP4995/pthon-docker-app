@@ -91,4 +91,49 @@ pipeline {
             echo "Deployment failed — old version still running"
         }
     }
+stage('Cleanup Docker Hub Tags (Keep Last 3)') {
+    when {
+        expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+    }
+    steps {
+        withCredentials([string(
+            credentialsId: 'dockerhub-api-token',
+            variable: 'DOCKERHUB_TOKEN'
+        )]) {
+            sh '''#!/bin/bash
+            set -e
+
+            USERNAME="sumanthkp4995"
+            REPO="python-flask-app"
+            KEEP=3
+
+            echo "Fetching tags from Docker Hub..."
+
+            TAGS=$(curl -s -H "Authorization: Bearer $DOCKERHUB_TOKEN" \
+              "https://hub.docker.com/v2/repositories/$USERNAME/$REPO/tags/?page_size=100" \
+              | grep -o '"name":"[0-9]*"' | cut -d':' -f2 | tr -d '"' \
+              | sort -n)
+
+            TOTAL=$(echo "$TAGS" | wc -l)
+
+            if [ "$TOTAL" -le "$KEEP" ]; then
+              echo "Only $TOTAL tags found. Nothing to delete."
+              exit 0
+            fi
+
+            DELETE_COUNT=$((TOTAL - KEEP))
+            DELETE_TAGS=$(echo "$TAGS" | head -n $DELETE_COUNT)
+
+            for TAG in $DELETE_TAGS; do
+              echo "Deleting Docker Hub tag: $TAG"
+              curl -s -X DELETE \
+                -H "Authorization: Bearer $DOCKERHUB_TOKEN" \
+                "https://hub.docker.com/v2/repositories/$USERNAME/$REPO/tags/$TAG/"
+            done
+
+            echo "Docker Hub cleanup complete. Kept latest $KEEP tags."
+            '''
+        }
+    }
+}
 }
