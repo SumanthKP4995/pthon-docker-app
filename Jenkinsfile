@@ -74,6 +74,44 @@ pipeline {
                 '''
             }
         }
+	stage('Cleanup Old Images') {
+    when {
+        expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+    }
+    steps {
+        sh '''
+        echo "Cleaning up old Docker images, keeping last 3 versions..."
+
+        IMAGE_NAME="sumanthkp4995/python-flask-app"
+
+        # Get all tags sorted numerically (newest last)
+        TAGS=$(docker images $IMAGE_NAME --format "{{.Tag}}" \
+              | grep -E '^[0-9]+$' \
+              | sort -n)
+
+        # Count tags
+        TAG_COUNT=$(echo "$TAGS" | wc -l)
+
+        if [ "$TAG_COUNT" -le 3 ]; then
+            echo "Only $TAG_COUNT image(s) found. Nothing to delete."
+            exit 0
+        fi
+
+        # Calculate how many to remove
+        REMOVE_COUNT=$((TAG_COUNT - 3))
+
+        # Select oldest tags
+        REMOVE_TAGS=$(echo "$TAGS" | head -n $REMOVE_COUNT)
+
+        for TAG in $REMOVE_TAGS; do
+            echo "Removing old image: $IMAGE_NAME:$TAG"
+            docker rmi -f $IMAGE_NAME:$TAG || true
+        done
+
+        echo "Cleanup completed. Kept last 3 images."
+        '''
+    }
+}
     }
 
     post {
