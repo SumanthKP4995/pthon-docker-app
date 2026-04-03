@@ -74,53 +74,63 @@ pipeline {
             }
         }
 
-        /* ✅ DOCKER HUB CLEANUP (REGISTRY) */
         stage('Cleanup Docker Hub Tags (Keep Last 3)') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
-            steps {
-                withCredentials([string(
-                    credentialsId: 'dockerhub-api-token',
-                    variable: 'DOCKERHUB_TOKEN'
-                )]) {
-                    sh '''#!/bin/bash
-                    set -e
+    when {
+        expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+    }
+    steps {
+        withCredentials([string(
+            credentialsId: 'dockerhub-api-token',
+            variable: 'DOCKERHUB_TOKEN'
+        )]) {
+            sh '''#!/bin/bash
+            set -e
 
-                    USERNAME="sumanthkp4995"
-                    REPO="python-flask-app"
-                    KEEP=3
+            USERNAME="sumanthkp4995"
+            REPO="python-flask-app"
+            KEEP=3
 
-                    echo "Fetching tags from Docker Hub..."
+            echo "Authenticating with Docker Hub..."
 
-                    TAGS=$(curl -s -H "Authorization: Bearer $DOCKERHUB_TOKEN" \
-                      "https://hub.docker.com/v2/repositories/$USERNAME/$REPO/tags/?page_size=100" \
-                      | grep -o '"name":"[0-9]*"' \
-                      | cut -d':' -f2 | tr -d '"' \
-                      | sort -n)
+            JWT=$(curl -s -X POST https://hub.docker.com/v2/users/login/ \
+              -H "Content-Type: application/json" \
+              -d "{\"username\": \"${USERNAME}\", \"password\": \"${DOCKERHUB_TOKEN}\"}" \
+              | jq -r .token)
 
-                    TOTAL=$(echo "$TAGS" | wc -l)
+            if [ "$JWT" == "null" ] || [ -z "$JWT" ]; then
+              echo "Failed to obtain Docker Hub JWT"
+              exit 0
+            fi
 
-                    if [ "$TOTAL" -le "$KEEP" ]; then
-                        echo "Nothing to delete from Docker Hub"
-                        exit 0
-                    fi
+            echo "Fetching tags..."
 
-                    DELETE_COUNT=$((TOTAL - KEEP))
-                    DELETE_TAGS=$(echo "$TAGS" | head -n $DELETE_COUNT)
+            TAGS=$(curl -s -H "Authorization: JWT $JWT" \
+              "https://hub.docker.com/v2/repositories/$USERNAME/$REPO/tags/?page_size=100" \
+              | jq -r '.results[].name' \
+              | grep -E '^[0-9]+$' | sort -n)
 
-                    for TAG in $DELETE_TAGS; do
-                        echo "Deleting Docker Hub tag: $TAG"
-                        curl -s -X DELETE \
-                          -H "Authorization: Bearer $DOCKERHUB_TOKEN" \
-                          "https://hub.docker.com/v2/repositories/$USERNAME/$REPO/tags/$TAG/"
-                    done
+            TOTAL=$(echo "$TAGS" | wc -l)
 
-                    echo "Docker Hub cleanup completed"
-                    '''
-                }
-            }
+            if [ "$TOTAL" -le "$KEEP" ]; then
+              echo "Nothing to delete"
+              exit 0
+            fi
+
+            DELETE_COUNT=$((TOTAL - KEEP))
+            DELETE_TAGS=$(echo "$TAGS" | head -n $DELETE_COUNT)
+
+            for TAG in $DELETE_TAGS; do
+              echo "Deleting Docker Hub tag: $TAG"
+              curl -s -X DELETE \
+                -H "Authorization: JWT $JWT" \
+                "https://hub.docker.com/v2/repositories/$USERNAME/$REPO/tags/$TAG/"
+            done
+
+            echo "Docker Hub cleanup finished"
+            '''
         }
+    }
+}
     }
 
     post {
